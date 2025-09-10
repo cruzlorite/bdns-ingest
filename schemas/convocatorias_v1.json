@@ -1,0 +1,11 @@
+{
+    "numeroConvocatoria": "VARCHAR",
+    "mrr": "BOOLEAN",
+    "descripcion": "VARCHAR",
+    "descripcionLeng": "VARCHAR",
+    "fechaRecepcion": "DATE",
+    "nivel1": "VARCHAR",
+    "nivel2": "VARCHAR",
+    "nivel3": "VARCHAR",
+    "codigoInvente": "VARCHAR"
+}

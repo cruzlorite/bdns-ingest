@@ -1,0 +1,19 @@
+{
+    "id": "INTEGER",
+    "idConvocatoria": "INTEGER",
+    "numeroConvocatoria": "VARCHAR",
+    "convocatoria": "VARCHAR",
+    "descripcionCooficial": "VARCHAR",
+    "nivel1": "VARCHAR",
+    "nivel2": "VARCHAR",
+    "nivel3": "VARCHAR",
+    "codigoInvente": "VARCHAR",
+    "fechaConcesion": "DATE",
+    "idPersona": "INTEGER",
+    "beneficiario": "VARCHAR",
+    "instrumento": "VARCHAR",
+    "importe": "DECIMAL(15,2)",
+    "ayudaEquivalente": "DECIMAL(15,2)",
+    "urlBR": "VARCHAR",
+    "tieneProyecto": "BOOLEAN"
+}

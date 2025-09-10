@@ -1,0 +1,28 @@
+-- ================================================
+-- Template: repartition.sql.j2
+-- Description: Repartition Parquet files in a director
+--
+-- Parameters:
+--   input_path        (string) : Path to input directory with Parquet files
+--   output_path       (string) : Path to output directory for repartitioned Parquet files
+--   compression       (string) : Compression codec for Parquet output
+--   file_size_bytes   (int)    : Maximum size of each output Parquet file in bytes
+--   file_name_pattern (string) : Pattern for naming output files
+-- ================================================
+
+{% set input_path_glob = input_path | trim('/') + '/*.parquet' %}
+
+-- Step 1: Read input parquet files into a DuckDB table
+CREATE TEMP TABLE _STAGING AS
+SELECT * FROM read_parquet('{{ input_path_glob }}');
+
+-- Step 2: Write out repartitioned parquet files
+COPY _STAGING
+TO '{{ output_path }}' (
+    FORMAT PARQUET,
+    OVERWRITE_OR_IGNORE,
+    COMPRESSION {{ compression }},
+    FILE_SIZE_BYTES {{ file_size_bytes }},
+    FILENAME_PATTERN '{{ file_name_pattern }}'
+);
+

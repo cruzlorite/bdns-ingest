@@ -1,0 +1,16 @@
+{
+    "idConcesion": "INTEGER",
+    "idConvocatoria": "INTEGER",
+    "idPersona": "INTEGER",
+    "codigoConcesion": "VARCHAR",
+    "numeroConvocatoria": "VARCHAR",
+    "convocante": "VARCHAR",
+    "reglamento": "VARCHAR",
+    "sectorProducto": "VARCHAR",
+    "instrumento": "VARCHAR",
+    "fechaConcesion": "DATE",
+    "fechaRegistro": "DATE",
+    "beneficiario": "VARCHAR",
+    "sectorActividad": "VARCHAR",
+    "ayudaEquivalente": "DECIMAL(15,2)"
+}

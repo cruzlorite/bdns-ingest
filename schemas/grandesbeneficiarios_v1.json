@@ -1,0 +1,6 @@
+{
+    "idPersona": "INTEGER",
+    "beneficiario": "VARCHAR",
+    "ejercicio": "INTEGER",
+    "ayudaETotal": "DECIMAL(15,2)"
+}

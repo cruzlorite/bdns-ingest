@@ -1,0 +1,43 @@
+-- ================================================
+-- Template: ingest_from_file.sql.j2
+-- Description: Ingest JSONL into DuckDB, enrich with metadata, deduplicate and export to Parquet
+--
+-- Parameters:
+--   batch_id     (string)  : Unique batch identifier for this ingestion
+--   input_file   (string)  : Path to input JSONL file
+--   output_path  (string)  : Path to output directory for Parquet files
+--   columns      (json)    : JSON object defining columns and types
+--   columns_list (string)  : Comma-separated list of columns for hashing.
+--                            Keeping the order is crucial for deterministic behaviour
+--   compression   (string) : Compression codec for Parquet output
+-- ================================================
+
+{% set output_path_glob = output_path | trim('/') + '/*.parquet' %}
+{% set output_file = output_path | trim('/') + '/' + batch_id + '.parquet' %}
+
+-- Step 1: Load JSON + enrich with metadata
+CREATE TEMP TABLE _WITH_METADATA AS
+SELECT
+    *,
+    struct_pack(
+        batch_id := '{{ batch_id }}',
+        ingest_time := CURRENT_TIMESTAMP,
+        -- hashing columns: {{ columns_list }}
+        row_hash := md5_number(to_json(struct_pack({{ columns_list }})))
+    ) AS __metadata
+FROM read_json('{{ input_file }}', columns = {{ columns }}, auto_detect = false);
+
+-- Step 2: Copy empty parquet file to avoid failure on first run
+COPY (SELECT * FROM _WITH_METADATA WHERE FALSE) TO '{{ output_file }}' (FORMAT PARQUET);
+
+-- Step 3: Deduplicate against all file in output path
+CREATE TEMP TABLE _FINAL AS
+SELECT *
+FROM _WITH_METADATA
+ANTI JOIN (
+    SELECT __metadata.row_hash AS row_hash
+    FROM read_parquet('{{ output_path_glob }}')
+) ON _WITH_METADATA.__metadata.row_hash = row_hash;
+
+-- Step 4: Export this batch
+COPY _FINAL TO '{{ output_file }}' (FORMAT PARQUET, COMPRESSION {{ compression }});

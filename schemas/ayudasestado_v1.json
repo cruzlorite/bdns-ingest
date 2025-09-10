@@ -1,0 +1,23 @@
+{
+    "idConcesion": "INTEGER",
+    "idConvocatoria": "INTEGER",
+    "idPersona": "INTEGER",
+    "numeroConvocatoria": "VARCHAR",
+    "convocatoria": "VARCHAR",
+    "convocante": "VARCHAR",
+    "reglamento": "VARCHAR",
+    "objetivo": "VARCHAR",
+    "instrumento": "VARCHAR",
+    "tipoBeneficiario": "VARCHAR",
+    "fechaConcesion": "DATE",
+    "fechaAlta": "DATE",
+    "beneficiario": "VARCHAR",
+    "importe": "DECIMAL(15,2)",
+    "ayudaEquivalente": "DECIMAL(15,2)",
+    "region": "VARCHAR",
+    "sectores": "VARCHAR",
+    "ayudaEstado": "VARCHAR",
+    "urlAyudaEstado": "VARCHAR",
+    "entidad": "VARCHAR",
+    "intermediario": "VARCHAR"
+}

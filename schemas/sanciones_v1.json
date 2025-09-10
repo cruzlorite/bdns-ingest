@@ -1,0 +1,16 @@
+{
+    "numeroConvocatoria": "VARCHAR",
+    "convocatoria": "VARCHAR",
+    "nivel1": "VARCHAR",
+    "nivel2": "VARCHAR",
+    "nivel3": "VARCHAR",
+    "codigoINVENTE": "VARCHAR",
+    "fechaConcesion": "DATE",
+    "infraccion": "VARCHAR",
+    "importe": "DECIMAL(15,2)",
+    "sancionado": "VARCHAR",
+    "fechaSancion": "DATE",
+    "importeMulta": "DECIMAL(15,2)",
+    "inicioInhabilitacion": "DATE",
+    "finInhabilitacion": "DATE"
+}

@@ -1,0 +1,9 @@
+{
+    "id": "INTEGER",
+    "descripcion": "VARCHAR",
+    "descripcionCooficial": "VARCHAR",
+    "tipoPlan": "VARCHAR",
+    "vigenciaDesde": "INTEGER",
+    "vigenciaHasta": "INTEGER",
+    "ambitos": "VARCHAR"
+}
