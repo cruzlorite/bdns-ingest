@@ -1,15 +1,14 @@
 -- ================================================
 -- Template: ingest_from_file.sql.j2
--- Description: Ingest JSONL into DuckDB, enrich with metadata, deduplicate and export to Parquet
---
+-- Description: Ingest JSONL into DuckDB, enrich with metadata, deduplicate (optional) and export to Parquet
 -- Parameters:
 --   batch_id     (string)  : Unique batch identifier for this ingestion
 --   input_file   (string)  : Path to input JSONL file
 --   output_path  (string)  : Path to output directory for Parquet files
 --   columns      (json)    : JSON object defining columns and types
---   columns_list (string)  : Comma-separated list of columns for hashing.
---                            Keeping the order is crucial for deterministic behaviour
---   compression   (string) : Compression codec for Parquet output
+--   columns_list (string)  : Comma-separated list of columns for hashing
+--   compression  (string)  : Parquet compression codec
+--   deduplication  (bool)  : If true, deduplicate using row_hash
 -- ================================================
 
 {% set output_path_glob = output_path | trim('/') + '/*.parquet' %}
@@ -22,15 +21,16 @@ SELECT
     struct_pack(
         batch_id := '{{ batch_id }}',
         ingest_time := CURRENT_TIMESTAMP,
-        -- hashing columns: {{ columns_list }}
-        row_hash := md5_number(to_json(struct_pack({{ columns_list }})))
+        row_hash := md5_number_upper(to_json(struct_pack({{ columns.keys() | join(", ") }})))
     ) AS __metadata
 FROM read_json('{{ input_file }}', columns = {{ columns }}, auto_detect = false);
 
--- Step 2: Copy empty parquet file to avoid failure on first run
-COPY (SELECT * FROM _WITH_METADATA WHERE FALSE) TO '{{ output_file }}' (FORMAT PARQUET);
+-- Step 2: Create empty parquet placeholder to avoid first-run read failures
+COPY (SELECT * FROM _WITH_METADATA WHERE FALSE)
+TO '{{ output_file }}' (FORMAT PARQUET);
 
--- Step 3: Deduplicate against all file in output path
+-- Step 3: Deduplicate against all files in output path
+{% if deduplication == "true" %}
 CREATE TEMP TABLE _FINAL AS
 SELECT *
 FROM _WITH_METADATA
@@ -38,6 +38,10 @@ ANTI JOIN (
     SELECT __metadata.row_hash AS row_hash
     FROM read_parquet('{{ output_path_glob }}')
 ) ON _WITH_METADATA.__metadata.row_hash = row_hash;
+{% else %}
+CREATE TEMP TABLE _FINAL AS
+SELECT * FROM _WITH_METADATA;
+{% endif %}
 
 -- Step 4: Export this batch
 COPY _FINAL TO '{{ output_file }}' (FORMAT PARQUET, COMPRESSION {{ compression }});

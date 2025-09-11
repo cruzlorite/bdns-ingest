@@ -10,39 +10,55 @@
 # General Public License for more details.
 # You should have received a copy of the GNU General Public License along
 # with this program. If not, see <https://www.gnu.org/licenses/>.
-#
+
 # -----------------------------------------------------------------------------
 # bdns-ingest.sh
-# A CLI tool to fetch data from BDNS endpoints and ingest it into DuckDB
-# Supports a dry-run mode that prints info and optionally validates SQL
+# A CLI tool to fetch data from the BDNS and ingests into Parquet using DuckDB
 # -----------------------------------------------------------------------------
-
 set -euo pipefail
 IFS=$'\n\t'
 shopt -s inherit_errexit nullglob
 
 # -------------------------------
+# Prepare list of available schemas
+# -------------------------------
+schema_list=$(\
+    ls "./schemas"/*.json 2>/dev/null \
+        | xargs -n1 basename \
+        | sed 's/\.json$//' \
+        | sed 's/^/\t\t\t- /'\
+)
+
+# -------------------------------
 # Helper functions
 # -------------------------------
-log() { echo -e "[$(date '+%Y-%m-%d %H:%M:%S')] [INFO] $*"; }
-log_dry_run() { log "[DRY-RUN] $*"; }
-error() { echo -e "[$(date '+%Y-%m-%d %H:%M:%S')] [ERROR] $*" >&2; }
+YELLOW=$'\e[33m'; GREEN=$'\e[32m'; MAGENTA=$'\e[35m'; CYAN=$'\e[36m'
+RED=$'\e[31m'; RESET=$'\e[0m'; BOLD=$'\e[1m'; DIM=$'\e[2m'
+ts() { date '+%Y-%m-%d %H:%M:%S'; }
+log()   { printf '%s%s [INFO]%s  %s\n'  "$YELLOW" "$(ts)" "$RESET" "$*"; }
+error() { printf '%s%s [ERROR]%s %s\n' "$RED"    "$(ts)" "$RESET" "$*"; } >&2
 
 usage() {
     cat <<EOF
-Usage: $0
-        -e <endpoint> -v <version> [-o <output_path>] [-c <compression>]
-        [-s <schema>] [-d] [-h] [-- bdns-fetch additional args...]
+Usage: $0 -e <endpoint> -s <schema> [-o <output_path>] [-c <compression>]
+          [-n] [-d] [-h] [-- bdns-fetch additional args...]
 
-Options:
-  -e, --endpoint    BDNS endpoint (required)
-  -v, --version     Endpoint version (required)
-  -s, --schema      Schema version (default: ./schemas/<endpoint>_<version>.json)
-  -o, --output      Output path (default: ./data/bdns/<endpoint>/<version>)
-  -c, --compression Compression codec for Parquet output (default: ZSTD)
-  -t, --temp-file   File to use for temporary storage (default: __temp__<batch_id>.jsonl)
-  -d, --dry-run     Print commands and SQL, optionally validate SQL without running
-  -h, --help        Show this help message
+This script fetches data from a specified BDNS endpoint and ingests it into a Parquet file.
+
+Required arguments:
+  -e, --endpoint    BDNS endpoint (sectores, convocatorias, etc.).
+  -s, --schema      Schema to use (one of):
+ ${schema_list}
+
+Optional arguments:
+  -o, --output      Output path (default: ./data/bdns/<endpoint>/<schema>).
+  -c, --compression One of [ZSTD, GZIP, LZ4, SNAPPY] (default: ZSTD).
+
+Flags:
+  -n, --no-dedup    Skip SQL deduplication step. Disabling it allows concurrent
+                    writes in the same path (default: false).
+  -d, --dry-run     Print commands and SQL, without executing any commands (default: false).
+  -h, --help        Show help message and exit.
 
 All arguments after '--' are passed directly to bdns-fetch.
 EOF
@@ -50,34 +66,22 @@ EOF
 }
 
 # -------------------------------
-# Default values
-# -------------------------------
-ENDPOINT=""
-VERSION=""
-OUTPUT_PATH=""
-SCHEMA=""
-COMPRESSION="ZSTD"
-DRY_RUN=false
-TEMP_FILE=""
-BDNS_FETCH_ARGS=()
-
-# -------------------------------
 # Parse CLI arguments
 # -------------------------------
-PARSED=$(getopt -o e:v:o:s:c:h --long endpoint:,version:,output:,schema:,compression:,dry-run,help -- "$@") || usage
+PARSED=$(getopt -o e:v:o:s:c:ndh --long endpoint:,version:,output:,schema:,compression:,no-dedup,dry-run,help -- "$@")
 eval set -- "$PARSED"
 
 while true; do
     case "$1" in
-        -e|--endpoint) ENDPOINT="$2"; shift 2 ;;
-        -v|--version) VERSION="$2"; shift 2 ;;
-        -o|--output) OUTPUT_PATH="$2"; shift 2 ;;
-        -s|--schema) SCHEMA="$2"; shift 2 ;;
-        -c|--compression) COMPRESSION="$2"; shift 2 ;;
-        -t|--temp-file) TEMP_FILE="$2"; shift 2 ;;
-        -d|--dry-run) DRY_RUN=true; shift ;;
-        -h|--help) usage ;;
-        --) shift; BDNS_FETCH_ARGS=("$@"); break ;;
+    -e|--endpoint) endpoint="$2"; shift 2 ;;
+    -v|--version) version="$2"; shift 2 ;;
+    -o|--output) output_path="$2"; shift 2 ;;
+    -s|--schema) schema="$2"; shift 2 ;;
+    -c|--compression) compression="$2"; shift 2 ;;
+    -n|--no-dedup) deduplication=false; shift ;;
+    -d|--dry-run) dry_run=true; shift ;;
+    -h|--help) usage ;;
+    --) shift; bdns_fetch_args=("$@"); break ;;
         *) break ;;
     esac
 done
@@ -85,86 +89,118 @@ done
 # -------------------------------
 # Validate required parameters
 # -------------------------------
-if [[ -z "$ENDPOINT" || -z "$VERSION" ]]; then
-    error "Endpoint and version are required."
+if [[ -z "$endpoint" || -z "$schema" ]]; then
+    error "Endpoint and schema are required."
     usage
 fi
 
-# -------------------------------
-# Set defaults
-# -------------------------------
-readonly BATCH_ID="$(uuidgen -r)"
-readonly OUTPUT_PATH="${OUTPUT_PATH:-./data/bdns/${ENDPOINT}/${VERSION}}"
-readonly SCHEMA="${SCHEMA:-./schemas/${ENDPOINT}_${VERSION}.json}"
-readonly COMPRESSION="${COMPRESSION:-ZSTD}"
-readonly TEMP_FILE="${TEMP_FILE:-__temp__${BATCH_ID}.jsonl}"
-
-log "Starting ingestion for endpoint: $ENDPOINT, version: $VERSION"
-log "Output path: $OUTPUT_PATH"
-log "Output temp file: $TEMP_FILE"
-log "Using compression: $COMPRESSION"
-log "Using schema: $SCHEMA"
-log "Additional bdns-fetch args: ${BDNS_FETCH_ARGS[*]:-none}"
+if [[ ! -f "./schemas/${schema}.json" ]]; then
+    error "Schema '$schema' not found in ./schemas/. Run bdns-ingest.sh -h for help."
+    exit 1
+fi
 
 # -------------------------------
-# Generate SQL from Jinja template
+# Prepare temp file and cleanup
 # -------------------------------
-OUTPUT_FILE="$OUTPUT_PATH/$BATCH_ID.parquet"
+export temp_file=$(mktemp --suffix=.bdns-fetch.jsonl)
+trap 'rm -f "$temp_file"' EXIT
 
-# Read JSON schema directly with jq
-COLUMNS_LIST=$(jq -r 'keys | join(", ")' "$SCHEMA")
-COLUMNS=$(<"$SCHEMA")  # raw JSON content
+# -------------------------------
+# Set defaults and prepare parameters
+# -------------------------------
+readonly batch_id="$(date +%Y%m%d_%H%M%S)_$(uuidgen -r | cut -c1-8)"
+readonly input_file="$temp_file"
+readonly output_path="${output_path:-./data/bdns/$schema}"
+readonly output_file="$output_path/$batch_id.parquet"
+readonly schema_path="./schemas/${schema}.json"
+readonly columns=$(< "$schema_path")
+readonly compression="${compression:-ZSTD}"
+readonly deduplication="${deduplication:-true}"
+readonly dry_run="${dry_run:-false}"
+readonly json_config="{
+  \"batch_id\":         \"$batch_id\",
+  \"endpoint\":         \"$endpoint\",
+  \"schema\":           \"$schema\",
+  \"input_file\":       \"$input_file\",
+  \"output_path\":      \"$output_path\",
+  \"output_temp_file\": \"$temp_file\",
+  \"columns\":          $columns,
+  \"compression\":      \"$compression\",
+  \"deduplication\":    \"$deduplication\",
+  \"bdns_fetch_args\":  \"${bdns_fetch_args[*]:-""}\",
+  \"dry_run\":          \"$dry_run\"
+}"
 
-SQL=$(jinja "./sql/ingest_from_file.sql.j2" \
-    -D input_file "$TEMP_FILE" \
-    -D batch_id "$BATCH_ID" \
-    -D output_path "$OUTPUT_PATH" \
-    -D columns "$COLUMNS" \
-    -D columns_list "$COLUMNS_LIST" \
-    -D compression "$COMPRESSION" \
-)
+# --------------------------------
+# Print banner
+# --------------------------------
+echo -e "${RESET}"
+echo -e " ${YELLOW}BDNS Ingest Pipeline${RESET} — started at ${BOLD}$(date '+%Y-%m-%d %H:%M:%S %Z')${RESET}"
+echo " ────────────────────────────────────────────────────────────────────────"
+echo -e " ${CYAN}Batch ID      ${RESET}: ${BOLD}${batch_id}${RESET}"
+echo -e " ${CYAN}Endpoint      ${RESET}: ${BOLD}${endpoint}${RESET}"
+if [[ "${#bdns_fetch_args[@]}" -gt 0 ]]; then
+echo -e " ${CYAN}Fetch args    ${RESET}: ${BOLD}${bdns_fetch_args[*]}${RESET}"
+fi
+echo -e " ${CYAN}Schema        ${RESET}: ${BOLD}${schema}${RESET}"
+echo -e " ${CYAN}Output path   ${RESET}: ${BOLD}${output_path}${RESET}"
+echo -e " ${CYAN}Output file   ${RESET}: ${BOLD}${output_file}${RESET}"
+echo -e " ${CYAN}Compression   ${RESET}: ${BOLD}${compression}${RESET}"
+echo -e " ${CYAN}Deduplication ${RESET}: ${BOLD}${deduplication}${RESET}"
+echo -e " ${CYAN}User/Host     ${RESET}: ${BOLD}$USER@$(hostname)${RESET}"
+echo " ────────────────────────────────────────────────────────────────────────"
+echo
+echo -e " ${DIM}This program is distributed in the hope that it will be useful, but"
+echo " WITHOUT ANY WARRANTY; without even the implied warranty of"
+echo " MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU"
+echo " General Public License for more details.${RESET}"
+echo
 
-log "Generated SQL successfully."
+# -------------------------------
+# Compile SQL template
+# -------------------------------
+sql=$(echo "$json_config" | jinjanate "./sql/ingest_from_file.sql.j2" - --quiet -f json)
+log "SQL compiled successfully..."
 
 # -------------------------------
 # Functions
 # -------------------------------
+
 dry_run_report() {
-    log_dry_run "Batch ID: $BATCH_ID"
-    log_dry_run "Output path: $OUTPUT_PATH"
-    log_dry_run "Columns list: $COLUMNS_LIST"
-    log_dry_run "bdns-fetch command: bdns-fetch $ENDPOINT ${BDNS_FETCH_ARGS[*]}"
-    log_dry_run "SQL to be executed:"
-    echo "$SQL"
+    log "Dry run mode enabled. No commands will be executed."
+    log "BDNS Fetch command to be executed:"
+    log "bdns-fetch $endpoint ${bdns_fetch_args[@]} > ${temp_file}"
+    log "SQL to be executed:"
+    log "$sql"
 }
 
 fetch_and_ingest() {
-    log "Running bdns-fetch ${ENDPOINT} ${BDNS_FETCH_ARGS[*]}"
-    bdns-fetch $ENDPOINT ${BDNS_FETCH_ARGS[@]} > ${TEMP_FILE}
+    log "Running bdns-fetch ${endpoint}..."
+    bdns-fetch $endpoint ${bdns_fetch_args[@]} > ${temp_file}
+    log "bdns-fetch results successfully saved to '$temp_file'!"
 
     log "Running DuckDB ingestion..."
-    duckdb "$OUTPUT_FILE" -c "$SQL"
-    log "Ingestion run successfully into '$OUTPUT_FILE'."
+    duckdb "$output_file" -c "$sql"
+    log "Ingestion run successfully into '$output_file'!"
 
-    RECORDS_FETCHED=$(wc -l < "$TEMP_FILE" | tr -d ' ')
-    RECORDS_INGESTED=$(
-        duckdb -json -c "SELECT COUNT(*) AS count FROM read_parquet('$OUTPUT_FILE');" | \
+    records_fetched=$(wc -l < "$temp_file" | tr -d ' ')
+    records_ingested=$(\
+        duckdb -json -c "SELECT COUNT(*) AS count FROM read_parquet('$output_file');" | \
             jq -r '.[0].count')
 
-    log "Cleaning up temporary file '$TEMP_FILE'"
-    rm -f "$TEMP_FILE"
-
-    log "Records fetched: $RECORDS_FETCHED"
-    log "Records ingested: $RECORDS_INGESTED ($(( RECORDS_INGESTED * 100 / RECORDS_FETCHED ))%)"
+    log "Records fetched: $records_fetched"
+    log "Records ingested (dedup=$deduplication): $records_ingested ($(( records_ingested * 100 / records_fetched ))%)"
 }
 
 # -------------------------------
 # Dry-run or execute
 # -------------------------------
-if [[ "$DRY_RUN" == true ]]; then
+
+if [[ "$dry_run" == true ]]; then
     dry_run_report
-    exit 0
 else
     fetch_and_ingest
 fi
+
+log "Pipeline completed successfully!"
 
