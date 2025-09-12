@@ -1,18 +1,16 @@
-# .github/workflows/docker-publish.yml
-name: Publish Docker image on tag
+name: Lint, Test and Publish Docker image on tag
 
 on:
   push:
     tags:
-      - "v*.*.*"   # Trigger only on tags like v0.1.0
+      - "v*.*.*" 
 
 jobs:
-  build:
+  build-test-push:
     runs-on: ubuntu-latest
-
     permissions:
       contents: read
-      packages: write  # required to push to GHCR
+      packages: write
 
     steps:
       - name: Checkout code
@@ -22,14 +20,39 @@ jobs:
         id: version
         run: echo "VERSION=$(cat VERSION)" >> $GITHUB_ENV
 
+      # -----------------------------------------------------------------------
+      # Build the Docker image (with dev/test tools inside your Dockerfile)
+      # -----------------------------------------------------------------------
+      - name: Build image (for test)
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          load: true                # load image into local runner
+          tags: bdns-ingest:test    # local test tag
+
+      # -----------------------------------------------------------------------
+      # Run lint & tests inside the container
+      # Override the entrypoint so we can call `make` directly
+      # -----------------------------------------------------------------------
+      - name: Run shellcheck
+        run: docker run --rm --entrypoint "" -v $PWD:/src -w /src bdns-ingest:test make shellcheck
+
+      - name: Run tests
+        run: docker run --rm --entrypoint "" -v $PWD:/src -w /src bdns-ingest:test make test
+
+      # -----------------------------------------------------------------------
+      # Push the image only if everything passed
+      # -----------------------------------------------------------------------
       - name: Log in to GitHub Container Registry
+        if: success()
         uses: docker/login-action@v3
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build and push image
+      - name: Push release image
+        if: success()
         uses: docker/build-push-action@v5
         with:
           context: .
