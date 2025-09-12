@@ -36,7 +36,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends wget gzip  \
  && wget "$DUCKDB_CLI_URL" \
  && echo "$DUCKDB_CLI_SHA256  $(basename $DUCKDB_CLI_URL)" | sha256sum --check - \
  && gunzip -c "$(basename $DUCKDB_CLI_URL)" > /usr/local/bin/duckdb \
- && chmod +x /usr/local/bin/duckdb
+ && chmod +x /usr/local/bin/duckdb \
  && rm *.gz \
  && rm -rf /var/lib/apt/lists/*
 
