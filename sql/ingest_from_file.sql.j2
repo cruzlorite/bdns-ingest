@@ -11,6 +11,14 @@
 --   deduplication  (bool)  : If true, deduplicate using row_hash
 -- ================================================
 
+INSTALL httpfs;
+LOAD httpfs;
+
+CREATE SECRET s3_secret (
+    TYPE s3,
+    PROVIDER credential_chain
+);
+
 {% set output_path_glob = output_path | trim('/') + '/*.parquet' %}
 {% set output_file = output_path | trim('/') + '/' + batch_id + '.parquet' %}
 
@@ -25,11 +33,23 @@ SELECT
     ) AS __metadata
 FROM read_json('{{ input_file }}', columns = {{ columns }}, auto_detect = false);
 
--- Step 2: Create empty parquet placeholder to avoid first-run read failures
+-- Step 2: Fail if there are duplicates in the input_file itself
+{% if deduplication == "true" %}
+WITH _DUPLICATES AS (
+    SELECT __metadata.row_hash
+    FROM _WITH_METADATA
+    GROUP BY __metadata.row_hash
+    HAVING COUNT(*) > 1
+)
+SELECT ERROR('Duplicated rows found in input file "{{ input_file }}"')
+FROM _DUPLICATES;
+{% endif %}
+
+-- Step 3: Create empty parquet placeholder to avoid first-run read failures
 COPY (SELECT * FROM _WITH_METADATA WHERE FALSE)
 TO '{{ output_file }}' (FORMAT PARQUET);
 
--- Step 3: Deduplicate against all files in output path
+-- Step 4: Deduplicate against all files in output path
 {% if deduplication == "true" %}
 CREATE TEMP TABLE _FINAL AS
 SELECT *
@@ -43,5 +63,5 @@ CREATE TEMP TABLE _FINAL AS
 SELECT * FROM _WITH_METADATA;
 {% endif %}
 
--- Step 4: Export this batch
+-- Step 5: Export this batch
 COPY _FINAL TO '{{ output_file }}' (FORMAT PARQUET, COMPRESSION {{ compression }});

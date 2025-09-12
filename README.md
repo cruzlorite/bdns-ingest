@@ -1,5 +1,9 @@
 # BDNS Ingest
 
+gcloud storage hmac create \
+  --project= \
+  mysa
+
 [![English](https://img.shields.io/badge/lang-English-blue.svg)](README.md)
 [![Spanish](https://img.shields.io/badge/lang-Español-red.svg)](README.es.md)
 

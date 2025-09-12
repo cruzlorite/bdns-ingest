@@ -14,16 +14,19 @@
 # -----------------------------------------------------------------------------
 # bdns-ingest.sh
 # A CLI tool to fetch data from the BDNS and ingests into Parquet using DuckDB
-# -----------------------------------------------------------------------------
+
 set -euo pipefail
-IFS=$'\n\t'
 shopt -s inherit_errexit nullglob
+
+# Get script path and app home
+SCRIPT_PATH="$(realpath "${BASH_SOURCE[0]}")"
+APP_HOME="$(dirname "$(dirname "$SCRIPT_PATH")")"
 
 # -------------------------------
 # Prepare list of available schemas
 # -------------------------------
 schema_list=$(\
-    ls "./schemas"/*.json 2>/dev/null \
+    ls "$APP_HOME/schemas"/*.json 2>/dev/null \
         | xargs -n1 basename \
         | sed 's/\.json$//' \
         | sed 's/^/\t\t\t- /'\
@@ -68,13 +71,12 @@ EOF
 # -------------------------------
 # Parse CLI arguments
 # -------------------------------
-PARSED=$(getopt -o e:v:o:s:c:ndh --long endpoint:,version:,output:,schema:,compression:,no-dedup,dry-run,help -- "$@")
+PARSED=$(getopt -o e:o:s:c:ndh --long endpoint:,output:,schema:,compression:,no-dedup,dry-run,help -- "$@")
 eval set -- "$PARSED"
 
 while true; do
     case "$1" in
     -e|--endpoint) endpoint="$2"; shift 2 ;;
-    -v|--version) version="$2"; shift 2 ;;
     -o|--output) output_path="$2"; shift 2 ;;
     -s|--schema) schema="$2"; shift 2 ;;
     -c|--compression) compression="$2"; shift 2 ;;
@@ -89,14 +91,15 @@ done
 # -------------------------------
 # Validate required parameters
 # -------------------------------
-if [[ -z "$endpoint" || -z "$schema" ]]; then
-    error "Endpoint and schema are required."
-    usage
+if [[ -z "${endpoint-}" || -z "${schema-}" ]]; then
+  error "endpoint and schema are required." >&2
+  usage
+  exit 1
 fi
 
-if [[ ! -f "./schemas/${schema}.json" ]]; then
-    error "Schema '$schema' not found in ./schemas/. Run bdns-ingest.sh -h for help."
-    exit 1
+if [[ ! -f "$APP_HOME/schemas/${schema}.json" ]]; then
+    error "Schema '$schema' not found in $APP_HOME/schemas/. Run bdns-ingest.sh -h for help."
+    usage
 fi
 
 # -------------------------------
@@ -112,7 +115,7 @@ readonly batch_id="$(date +%Y%m%d_%H%M%S)_$(uuidgen -r | cut -c1-8)"
 readonly input_file="$temp_file"
 readonly output_path="${output_path:-./data/bdns/$schema}"
 readonly output_file="$output_path/$batch_id.parquet"
-readonly schema_path="./schemas/${schema}.json"
+readonly schema_path="$APP_HOME/schemas/${schema}.json"
 readonly columns=$(< "$schema_path")
 readonly compression="${compression:-ZSTD}"
 readonly deduplication="${deduplication:-true}"
@@ -135,20 +138,20 @@ readonly json_config="{
 # Print banner
 # --------------------------------
 echo -e "${RESET}"
-echo -e " ${YELLOW}BDNS Ingest Pipeline${RESET} — started at ${BOLD}$(date '+%Y-%m-%d %H:%M:%S %Z')${RESET}"
-echo " ────────────────────────────────────────────────────────────────────────"
-echo -e " ${CYAN}Batch ID      ${RESET}: ${BOLD}${batch_id}${RESET}"
-echo -e " ${CYAN}Endpoint      ${RESET}: ${BOLD}${endpoint}${RESET}"
+echo -e "${YELLOW}BDNS Ingest Pipeline${RESET} — started at ${BOLD}$(date '+%Y-%m-%d %H:%M:%S %Z')${RESET}"
+echo "────────────────────────────────────────────────────────────────────────"
+echo -e "${CYAN}Batch ID      ${RESET}: ${BOLD}${batch_id}${RESET}"
+echo -e "${CYAN}Endpoint      ${RESET}: ${BOLD}${endpoint}${RESET}"
 if [[ "${#bdns_fetch_args[@]}" -gt 0 ]]; then
-echo -e " ${CYAN}Fetch args    ${RESET}: ${BOLD}${bdns_fetch_args[*]}${RESET}"
+echo -e "${CYAN}Fetch args    ${RESET}: ${BOLD}${bdns_fetch_args[*]}${RESET}"
 fi
-echo -e " ${CYAN}Schema        ${RESET}: ${BOLD}${schema}${RESET}"
-echo -e " ${CYAN}Output path   ${RESET}: ${BOLD}${output_path}${RESET}"
-echo -e " ${CYAN}Output file   ${RESET}: ${BOLD}${output_file}${RESET}"
-echo -e " ${CYAN}Compression   ${RESET}: ${BOLD}${compression}${RESET}"
-echo -e " ${CYAN}Deduplication ${RESET}: ${BOLD}${deduplication}${RESET}"
-echo -e " ${CYAN}User/Host     ${RESET}: ${BOLD}$USER@$(hostname)${RESET}"
-echo " ────────────────────────────────────────────────────────────────────────"
+echo -e "${CYAN}Schema        ${RESET}: ${BOLD}${schema}${RESET}"
+echo -e "${CYAN}Output path   ${RESET}: ${BOLD}${output_path}${RESET}"
+echo -e "${CYAN}Output file   ${RESET}: ${BOLD}${output_file}${RESET}"
+echo -e "${CYAN}Compression   ${RESET}: ${BOLD}${compression}${RESET}"
+echo -e "${CYAN}Deduplication ${RESET}: ${BOLD}${deduplication}${RESET}"
+echo -e "${CYAN}Dry run       ${RESET}: ${BOLD}${dry_run}${RESET}"
+echo "────────────────────────────────────────────────────────────────────────"
 echo
 echo -e " ${DIM}This program is distributed in the hope that it will be useful, but"
 echo " WITHOUT ANY WARRANTY; without even the implied warranty of"
@@ -159,7 +162,7 @@ echo
 # -------------------------------
 # Compile SQL template
 # -------------------------------
-sql=$(echo "$json_config" | jinjanate "./sql/ingest_from_file.sql.j2" - --quiet -f json)
+sql=$(echo "$json_config" | jinjanate "$APP_HOME/sql/ingest_from_file.sql.j2" - --quiet -f json)
 log "SQL compiled successfully..."
 
 # -------------------------------
@@ -171,7 +174,7 @@ dry_run_report() {
     log "BDNS Fetch command to be executed:"
     log "bdns-fetch $endpoint ${bdns_fetch_args[@]} > ${temp_file}"
     log "SQL to be executed:"
-    log "$sql"
+    echo "$sql"
 }
 
 fetch_and_ingest() {
@@ -180,7 +183,7 @@ fetch_and_ingest() {
     log "bdns-fetch results successfully saved to '$temp_file'!"
 
     log "Running DuckDB ingestion..."
-    duckdb "$output_file" -c "$sql"
+    duckdb :memory: -c "$sql" > /dev/null
     log "Ingestion run successfully into '$output_file'!"
 
     records_fetched=$(wc -l < "$temp_file" | tr -d ' ')

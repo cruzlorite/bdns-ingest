@@ -180,6 +180,7 @@ htmlcov/
 .tox/
 test_data/
 mock_data/
+data/
 
 # -----------------------------------------------------------------------------
 # Keep Important Files (Override excludes)
