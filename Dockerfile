@@ -20,7 +20,7 @@ RUN apt-get update \
     uuid-runtime \
     jq \
     shellcheck \
-    bats-core \
+    bats \
  && rm -rf /var/lib/apt/lists/*
 
 # -------------------------------------------------------------------
