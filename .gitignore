@@ -6,16 +6,11 @@
 # -----------------------------------------------------------------------------
 # Data Files - Exclude all ingested data
 # -----------------------------------------------------------------------------
-data/
+data
 *.parquet
-*.jsonl
 *.json.gz
 *.duckdb
 *.db
-
-# Temporary files from ingestion
-__temp__*.jsonl
-*.tmp
 
 # -----------------------------------------------------------------------------
 # Logs and Output
@@ -43,11 +38,6 @@ __pycache__/
 # -----------------------------------------------------------------------------
 # Authentication & Secrets
 # -----------------------------------------------------------------------------
-# Google Cloud credentials
-*.json
-!schemas/*.json
-!config/*.json
-
 # API keys and tokens
 .env
 .env.local
@@ -178,18 +168,21 @@ perf_*.txt
 .coverage
 htmlcov/
 .tox/
-test_data/
-mock_data/
-data/
 
 # -----------------------------------------------------------------------------
 # Keep Important Files (Override excludes)
 # -----------------------------------------------------------------------------
 # Ensure we keep important project files
 !README.md
+!README.es.md
 !LICENSE
 !Makefile
+!Dockerfile
+!requirements.txt
+!VERSION
 !bin/
 !schemas/
 !sql/
+!tests/data/
 !.gitignore
+!.github/
