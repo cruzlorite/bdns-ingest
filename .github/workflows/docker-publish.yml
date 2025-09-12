@@ -1,0 +1,39 @@
+# .github/workflows/docker-publish.yml
+name: Publish Docker image on tag
+
+on:
+  push:
+    tags:
+      - "v*.*.*"   # Trigger only on tags like v0.1.0
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: read
+      packages: write  # required to push to GHCR
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Read version from VERSION file
+        id: version
+        run: echo "VERSION=$(cat VERSION)" >> $GITHUB_ENV
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: true
+          tags: |
+            ghcr.io/${{ github.repository_owner }}/bdns-ingest:${{ env.VERSION }}
+            ghcr.io/${{ github.repository_owner }}/bdns-ingest:latest

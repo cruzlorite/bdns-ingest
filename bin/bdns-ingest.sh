@@ -20,14 +20,13 @@ shopt -s inherit_errexit nullglob
 
 # Get script path and app home
 SCRIPT_PATH="$(realpath "${BASH_SOURCE[0]}")"
-APP_HOME="$(dirname "$(dirname "$SCRIPT_PATH")")"
+APP_HOME="$(dirname "$(dirname "${SCRIPT_PATH}")")"
 
 # -------------------------------
 # Prepare list of available schemas
 # -------------------------------
 schema_list=$(\
-    ls "$APP_HOME/schemas"/*.json 2>/dev/null \
-        | xargs -n1 basename \
+    find "${APP_HOME}/schemas" -maxdepth 1 -name '*.json' -print0 | xargs -0 -n1 basename \
         | sed 's/\.json$//' \
         | sed 's/^/\t\t\t- /'\
 )
@@ -35,7 +34,7 @@ schema_list=$(\
 # -------------------------------
 # Helper functions
 # -------------------------------
-YELLOW=$'\e[33m'; GREEN=$'\e[32m'; MAGENTA=$'\e[35m'; CYAN=$'\e[36m'
+YELLOW=$'\e[33m'; CYAN=$'\e[36m'
 RED=$'\e[31m'; RESET=$'\e[0m'; BOLD=$'\e[1m'; DIM=$'\e[2m'
 ts() { date '+%Y-%m-%d %H:%M:%S'; }
 log()   { printf '%s%s [INFO]%s  %s\n'  "$YELLOW" "$(ts)" "$RESET" "$*"; }
@@ -69,15 +68,15 @@ EOF
 }
 
 print_version() {
-    version=$(cat "$APP_HOME/VERSION")
-    echo "bdns-ingest v$version"
+    version=$(cat "${APP_HOME}/VERSION")
+    echo "bdns-ingest v${version}"
 }
 
 # -------------------------------
 # Parse CLI arguments
 # -------------------------------
 PARSED=$(getopt -o e:o:s:c:ndhv --long endpoint:,output:,schema:,compression:,no-dedup,dry-run,help,version -- "$@")
-eval set -- "$PARSED"
+eval set -- "${PARSED}"
 
 while true; do
     case "$1" in
@@ -103,8 +102,8 @@ if [[ -z "${endpoint-}" || -z "${schema-}" ]]; then
     exit 1
 fi
 
-if [[ ! -f "$APP_HOME/schemas/${schema}.json" ]]; then
-    error "Schema '$schema' not found in $APP_HOME/schemas/. Run bdns-ingest.sh -h for help."
+if [[ ! -f "${APP_HOME}/schemas/${schema}.json" ]]; then
+    error "Schema '${schema}' not found in ${APP_HOME}/schemas/. Run bdns-ingest.sh -h for help."
     print_usage
     exit 1
 fi
@@ -112,39 +111,39 @@ fi
 # -------------------------------
 # Prepare temp file and cleanup
 # -------------------------------
-export temp_file=$(mktemp --suffix=.bdns-fetch.jsonl)
-trap 'rm -f "$temp_file"' EXIT
+temp_file=$(mktemp --suffix=.bdns-fetch.jsonl)
+export temp_file
+trap 'rm -f "${temp_file}"' EXIT
 
 # -------------------------------
 # Set defaults and prepare parameters
 # -------------------------------
-readonly batch_id="$(date +%Y%m%d_%H%M%S)_$(uuidgen -r | cut -c1-8)"
-readonly input_file="$temp_file"
-readonly output_path="${output_path:-./data/bdns/$schema}"
-readonly output_file="$output_path/$batch_id.parquet"
-readonly schema_path="$APP_HOME/schemas/${schema}.json"
-readonly columns=$(< "$schema_path")
-readonly compression="${compression:-ZSTD}"
-readonly deduplication="${deduplication:-true}"
-readonly dry_run="${dry_run:-false}"
-readonly json_config="{
-  \"batch_id\":         \"$batch_id\",
-  \"endpoint\":         \"$endpoint\",
-  \"schema\":           \"$schema\",
-  \"input_file\":       \"$input_file\",
-  \"output_path\":      \"$output_path\",
-  \"output_temp_file\": \"$temp_file\",
-  \"columns\":          $columns,
-  \"compression\":      \"$compression\",
-  \"deduplication\":    \"$deduplication\",
-  \"bdns_fetch_args\":  \"${bdns_fetch_args[*]:-""}\",
-  \"dry_run\":          \"$dry_run\"
+batch_id="$(date +%Y%m%d_%H%M%S)_$(uuidgen -r | cut -c1-8)"
+input_file="${temp_file}"
+output_path="${output_path:-./data/bdns/$schema}"
+output_file="${output_path}/${batch_id}.parquet"
+schema_path="${APP_HOME}/schemas/${schema}.json"
+columns=$(< "${schema_path}")
+compression="${compression:-ZSTD}"
+deduplication="${deduplication:-true}"
+dry_run="${dry_run:-false}"
+json_config="{\
+    \"batch_id\":         \"${batch_id}\",\
+    \"endpoint\":         \"${endpoint}\",\
+    \"schema\":           \"${schema}\",\
+    \"input_file\":       \"${input_file}\",\
+    \"output_path\":      \"${output_path}\",\
+    \"output_file\":      \"${output_file}\",\
+    \"columns\":            ${columns},\
+    \"compression\":      \"${compression}\",\
+    \"deduplication\":    \"${deduplication}\",\
+    \"bdns_fetch_args\":  \"${bdns_fetch_args[*]:-""}\",\
+    \"dry_run\":          \"${dry_run}\"\
 }"
 
 # --------------------------------
 # Print banner
 # --------------------------------
-echo -e "${RESET}"
 echo -e "${YELLOW}BDNS Ingest Pipeline${RESET} — started at ${BOLD}$(date '+%Y-%m-%d %H:%M:%S %Z')${RESET}"
 echo "────────────────────────────────────────────────────────────────────────"
 echo -e "${CYAN}Batch ID      ${RESET}: ${BOLD}${batch_id}${RESET}"
@@ -179,27 +178,27 @@ log "SQL compiled successfully..."
 dry_run_report() {
     log "Dry run mode enabled. No commands will be executed."
     log "BDNS Fetch command to be executed:"
-    log "bdns-fetch $endpoint ${bdns_fetch_args[@]} > ${temp_file}"
+    log "bdns-fetch $endpoint ${bdns_fetch_args[*]} > $temp_file"
     log "SQL to be executed:"
     echo "$sql"
 }
 
 fetch_and_ingest() {
     log "Running bdns-fetch ${endpoint}..."
-    bdns-fetch $endpoint ${bdns_fetch_args[@]} > ${temp_file}
-    log "bdns-fetch results successfully saved to '$temp_file'!"
+    bdns-fetch "$endpoint" "${bdns_fetch_args[@]}" > "$temp_file"
+    log "bdns-fetch results successfully saved to '${temp_file}'!"
 
     log "Running DuckDB ingestion..."
     duckdb :memory: -c "$sql" > /dev/null
-    log "Ingestion run successfully into '$output_file'!"
+    log "Ingestion run successfully into '${output_file}'!"
 
-    records_fetched=$(wc -l < "$temp_file" | tr -d ' ')
+    records_fetched=$(wc -l < "${temp_file}" | tr -d ' ')
     records_ingested=$(\
-        duckdb -json -c "SELECT COUNT(*) AS count FROM read_parquet('$output_file');" | \
+        duckdb -json -c "SELECT COUNT(*) AS count FROM read_parquet('${output_file}');" | \
             jq -r '.[0].count')
 
-    log "Records fetched: $records_fetched"
-    log "Records ingested (dedup=$deduplication): $records_ingested ($(( records_ingested * 100 / records_fetched ))%)"
+    log "Records fetched: ${records_fetched}"
+    log "Records ingested (dedup=${deduplication}): ${records_ingested} ($(( records_ingested * 100 / records_fetched ))%)"
 }
 
 # -------------------------------

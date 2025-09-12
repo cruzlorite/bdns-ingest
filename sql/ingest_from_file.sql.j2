@@ -5,6 +5,7 @@
 --   batch_id     (string)  : Unique batch identifier for this ingestion
 --   input_file   (string)  : Path to input JSONL file
 --   output_path  (string)  : Path to output directory for Parquet files
+--   output_file  (string)  : Path to output Parquet file for this batch
 --   columns      (json)    : JSON object defining columns and types
 --   columns_list (string)  : Comma-separated list of columns for hashing
 --   compression  (string)  : Parquet compression codec
@@ -19,9 +20,6 @@ CREATE SECRET s3_secret (
     PROVIDER credential_chain
 );
 
-{% set output_path_glob = output_path | trim('/') + '/*.parquet' %}
-{% set output_file = output_path | trim('/') + '/' + batch_id + '.parquet' %}
-
 -- Step 1: Load JSON + enrich with metadata
 CREATE TEMP TABLE _WITH_METADATA AS
 SELECT
@@ -31,7 +29,13 @@ SELECT
         ingest_time := CURRENT_TIMESTAMP,
         row_hash := md5_number_upper(to_json(struct_pack({{ columns.keys() | join(", ") }})))
     ) AS __metadata
-FROM read_json('{{ input_file }}', columns = {{ columns }}, auto_detect = false);
+FROM read_json('{{ input_file }}',
+    columns = {{ columns }},
+    format = 'newline_delimited',
+    auto_detect = false,
+    ignore_errors = false,
+    union_by_name = true
+);
 
 -- Step 2: Fail if there are duplicates in the input_file itself
 {% if deduplication == "true" %}
@@ -56,7 +60,7 @@ SELECT *
 FROM _WITH_METADATA
 ANTI JOIN (
     SELECT __metadata.row_hash AS row_hash
-    FROM read_parquet('{{ output_path_glob }}')
+    FROM read_parquet('{{ output_path }}/*.parquet')
 ) ON _WITH_METADATA.__metadata.row_hash = row_hash;
 {% else %}
 CREATE TEMP TABLE _FINAL AS

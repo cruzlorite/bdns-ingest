@@ -1,3 +1,10 @@
+.PHONY: shellcheck
+
+# Lint all shell scripts in bin/ using shellcheck
+shellcheck:
+	@echo "==> Running shellcheck on bin/*.sh..."
+	shellcheck bin/*.sh
+	@echo "==> Shellcheck completed."
 # Makefile for bdns-ingest
 
 PREFIX   ?= $(HOME)/.local
