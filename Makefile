@@ -1,10 +1,3 @@
-.PHONY: shellcheck
-
-# Lint all shell scripts in bin/ using shellcheck
-shellcheck:
-	@echo "==> Running shellcheck on bin/*.sh..."
-	shellcheck bin/*.sh
-	@echo "==> Shellcheck completed."
 # Makefile for bdns-ingest
 
 PREFIX   ?= $(HOME)/.local
@@ -54,14 +47,15 @@ docker-build:
 	@docker build -t bdns-ingest .
 	$(ECHO) Done.
 
-docker-run:
-	$(ECHO) Running Docker container...
-	@docker run -it --rm bdns-ingest
-	$(ECHO) Done.
+shellcheck:
+	$(ECHO) Running shellcheck on bin/*.sh...
+	shellcheck bin/*.sh
+	$(ECHO) Shellcheck completed.
 
-docker-rmi:
-	$(ECHO) Removing Docker image...
-	@docker rmi bdns-ingest
-	$(ECHO) Done.
+test:
+	$(ECHO) Running tests...
+	@bats tests/
+	$(ECHO) Tests completed.
 
-.PHONY: install uninstall
+.PHONY: install uninstall docker-build shellcheck test
+
