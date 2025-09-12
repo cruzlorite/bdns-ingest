@@ -41,49 +41,55 @@ ts() { date '+%Y-%m-%d %H:%M:%S'; }
 log()   { printf '%s%s [INFO]%s  %s\n'  "$YELLOW" "$(ts)" "$RESET" "$*"; }
 error() { printf '%s%s [ERROR]%s %s\n' "$RED"    "$(ts)" "$RESET" "$*"; } >&2
 
-usage() {
-    cat <<EOF
+print_usage() {
+        cat <<EOF
 Usage: $0 -e <endpoint> -s <schema> [-o <output_path>] [-c <compression>]
-          [-n] [-d] [-h] [-- bdns-fetch additional args...]
+                    [-n] [-d] [-h] [-- bdns-fetch additional args...]
 
 This script fetches data from a specified BDNS endpoint and ingests it into a Parquet file.
 
 Required arguments:
-  -e, --endpoint    BDNS endpoint (sectores, convocatorias, etc.).
-  -s, --schema      Schema to use (one of):
+    -e, --endpoint    BDNS endpoint (sectores, convocatorias, etc.).
+    -s, --schema      Schema to use (one of):
  ${schema_list}
 
 Optional arguments:
-  -o, --output      Output path (default: ./data/bdns/<endpoint>/<schema>).
-  -c, --compression One of [ZSTD, GZIP, LZ4, SNAPPY] (default: ZSTD).
+    -o, --output      Output path (default: ./data/bdns/<endpoint>/<schema>).
+    -c, --compression One of [ZSTD, GZIP, LZ4, SNAPPY] (default: ZSTD).
 
 Flags:
-  -n, --no-dedup    Skip SQL deduplication step. Disabling it allows concurrent
-                    writes in the same path (default: false).
-  -d, --dry-run     Print commands and SQL, without executing any commands (default: false).
-  -h, --help        Show help message and exit.
+    -n, --no-dedup    Skip SQL deduplication step. Disabling it allows concurrent
+                                        writes in the same path (default: false).
+    -d, --dry-run     Print commands and SQL, without executing any commands (default: false).
+    -h, --help        Show help message and exit.
+    -v, --version     Print version and exit.
 
 All arguments after '--' are passed directly to bdns-fetch.
 EOF
-    exit 1
+}
+
+print_version() {
+    version=$(cat "$APP_HOME/VERSION")
+    echo "bdns-ingest v$version"
 }
 
 # -------------------------------
 # Parse CLI arguments
 # -------------------------------
-PARSED=$(getopt -o e:o:s:c:ndh --long endpoint:,output:,schema:,compression:,no-dedup,dry-run,help -- "$@")
+PARSED=$(getopt -o e:o:s:c:ndhv --long endpoint:,output:,schema:,compression:,no-dedup,dry-run,help,version -- "$@")
 eval set -- "$PARSED"
 
 while true; do
     case "$1" in
-    -e|--endpoint) endpoint="$2"; shift 2 ;;
-    -o|--output) output_path="$2"; shift 2 ;;
-    -s|--schema) schema="$2"; shift 2 ;;
-    -c|--compression) compression="$2"; shift 2 ;;
-    -n|--no-dedup) deduplication=false; shift ;;
-    -d|--dry-run) dry_run=true; shift ;;
-    -h|--help) usage ;;
-    --) shift; bdns_fetch_args=("$@"); break ;;
+        -e|--endpoint) endpoint="$2"; shift 2 ;;
+        -o|--output) output_path="$2"; shift 2 ;;
+        -s|--schema) schema="$2"; shift 2 ;;
+        -c|--compression) compression="$2"; shift 2 ;;
+        -n|--no-dedup) deduplication=false; shift ;;
+        -d|--dry-run) dry_run=true; shift ;;
+        -h|--help) print_usage; exit 0 ;;
+        -v|--version) print_version; exit 0 ;;
+        --) shift; bdns_fetch_args=("$@"); break ;;
         *) break ;;
     esac
 done
@@ -92,14 +98,15 @@ done
 # Validate required parameters
 # -------------------------------
 if [[ -z "${endpoint-}" || -z "${schema-}" ]]; then
-  error "endpoint and schema are required." >&2
-  usage
-  exit 1
+    error "endpoint and schema are required." >&2
+    print_usage
+    exit 1
 fi
 
 if [[ ! -f "$APP_HOME/schemas/${schema}.json" ]]; then
     error "Schema '$schema' not found in $APP_HOME/schemas/. Run bdns-ingest.sh -h for help."
-    usage
+    print_usage
+    exit 1
 fi
 
 # -------------------------------
