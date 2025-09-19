@@ -2,7 +2,7 @@
 
 
 docker run --env-file .env bdns-ingest:latest \
-    --endpoint ayudaestado-busqueda  \
+    --endpoint ayudasestado-busqueda  \
     --schema ayudasestado_v1 \
     --output gs://bdns/ayudaestado_v1 \
     -- --fechaDesde 2000-01-01 -np 0
