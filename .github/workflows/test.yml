@@ -1,0 +1,39 @@
+name: Test and Lint
+
+on:
+  push:
+    branches:
+      - develop
+      - 'feature/**'
+  pull_request:
+    branches:
+      - main
+      - develop
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # -----------------------------------------------------------------------
+      # Build the Docker image (with dev/test tools inside your Dockerfile)
+      # -----------------------------------------------------------------------
+      - name: Build image (for test)
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          load: true                # load image into local runner
+          tags: bdns-ingest:test    # local test tag
+
+      # -----------------------------------------------------------------------
+      # Run lint & tests inside the container
+      # Override the entrypoint so we can call `make` directly
+      # -----------------------------------------------------------------------
+      - name: Run shellcheck
+        run: docker run --rm --entrypoint "" -v $PWD:/src -w /src bdns-ingest:test make shellcheck
+
+      - name: Run tests
+        run: docker run --rm --entrypoint "" -v $PWD:/src -w /src bdns-ingest:test make test
